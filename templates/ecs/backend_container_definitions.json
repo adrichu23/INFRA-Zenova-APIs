@@ -1,0 +1,24 @@
+[
+  {
+    "name": "${var_task_name}",
+    "image": "${var_image_repo_url}:${var_image_tag}",
+    "essential": true,
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "${var_aws_cloudwatch_log_group}",
+        "awslogs-region": "${var_aws_region}",
+        "awslogs-stream-prefix": "${var_task_log_stream_prefix}"
+      }
+    },
+    "environment": ${environment},
+    "secrets": ${secrets},
+    "portMappings": [
+      {
+        "containerPort": 5000,
+        "hostPort": 5000,
+        "protocol": "tcp"
+      }
+    ]
+  }
+]

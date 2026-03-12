@@ -1,0 +1,63 @@
+# EJEMPLO: Módulo Redis modificado para cluster simple (NO replication group)
+# Este archivo es solo de REFERENCIA, NO reemplaza main.tf actual
+
+resource "random_password" "redis_password" {
+  length           = 16
+  special          = true
+  override_special = "!#$%&*()-_=+[]{}<>:?"
+}
+
+resource "aws_secretsmanager_secret" "redis_credentials" {
+  name = "${lower(var.project)}-${lower(var.environment)}-redis-credentials"
+}
+
+resource "aws_secretsmanager_secret_version" "redis_credentials" {
+  secret_id = aws_secretsmanager_secret.redis_credentials.id
+  secret_string = jsonencode({
+    password = random_password.redis_password.result
+    host     = aws_elasticache_cluster.simple.cache_nodes[0].address  # CAMBIO
+    port     = var.redis_configuration.port
+  })
+}
+
+resource "aws_elasticache_subnet_group" "redis" {
+  name       = "${lower(var.project)}-${lower(var.environment)}-redis-subnet-group"
+  subnet_ids = var.private_subnet_ids
+}
+
+resource "aws_security_group" "redis" {
+  name        = "${lower(var.project)}-${lower(var.environment)}-redis-sg"
+  description = "Security group for Redis"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    from_port   = var.redis_configuration.port
+    to_port     = var.redis_configuration.port
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# CAMBIO PRINCIPAL: Usar aws_elasticache_cluster en vez de aws_elasticache_replication_group
+resource "aws_elasticache_cluster" "simple" {
+  cluster_id           = "${lower(var.project)}-${lower(var.environment)}-redis-001"
+  engine               = "redis"
+  node_type            = var.redis_configuration.node_type
+  num_cache_nodes      = 1  # Cluster simple, no replicación
+  parameter_group_name = var.redis_configuration.parameter_group
+  engine_version       = var.redis_configuration.engine_version
+  port                 = var.redis_configuration.port
+  subnet_group_name    = aws_elasticache_subnet_group.redis.name
+  security_group_ids   = [aws_security_group.redis.id]
+  
+  # Sin encryption/auth para cluster simple (como el existente)
+  # at_rest_encryption_enabled = false
+  # transit_encryption_enabled = false
+}

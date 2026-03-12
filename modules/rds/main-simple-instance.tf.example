@@ -1,0 +1,73 @@
+# EJEMPLO: Módulo RDS modificado para instancia simple (NO cluster)
+# Este archivo es solo de REFERENCIA, NO reemplaza main.tf actual
+
+# Mantener secret manager
+resource "random_password" "master_password" {
+  length           = 16
+  special          = true
+  override_special = "!#$%&*()-_=+[]{}<>:?"
+}
+
+resource "aws_secretsmanager_secret" "rds_credentials" {
+  name = "${lower(var.project)}-${lower(var.environment)}-rds-credentials"
+}
+
+resource "aws_secretsmanager_secret_version" "rds_credentials" {
+  secret_id = aws_secretsmanager_secret.rds_credentials.id
+  secret_string = jsonencode({
+    username = var.rds_configuration.master_username
+    password = random_password.master_password.result
+    engine   = "postgres"
+    host     = aws_db_instance.simple.address  # CAMBIO: de cluster a instancia
+    port     = var.rds_configuration.db_port
+    dbname   = var.rds_configuration.database_name
+  })
+}
+
+# CAMBIO PRINCIPAL: Usar aws_db_instance en vez de aws_rds_cluster
+resource "aws_db_instance" "simple" {
+  identifier              = "${lower(var.project)}"  # "quotezen"
+  engine                  = "postgres"               # NO aurora-postgresql
+  engine_version          = var.rds_configuration.engine_version
+  instance_class          = var.rds_configuration.instance_class
+  allocated_storage       = 20  # NUEVO: requerido para instancias simples
+  storage_type            = "gp2"
+  db_name                 = var.rds_configuration.database_name
+  username                = var.rds_configuration.master_username
+  password                = random_password.master_password.result
+  backup_retention_period = var.rds_configuration.backup_retention_period
+  backup_window           = var.rds_configuration.preferred_backup_window
+  maintenance_window      = var.rds_configuration.preferred_maintenance_window
+  storage_encrypted       = var.rds_configuration.storage_encrypted
+  skip_final_snapshot     = true
+  vpc_security_group_ids  = [aws_security_group.rds.id]
+  db_subnet_group_name    = aws_db_subnet_group.rds.name
+  
+  # Sin multi-AZ para mantener bajo costo
+  multi_az = false
+}
+
+resource "aws_db_subnet_group" "rds" {
+  name       = "${lower(var.project)}-${lower(var.environment)}-subnet-group"
+  subnet_ids = var.private_subnet_ids
+}
+
+resource "aws_security_group" "rds" {
+  name        = "${lower(var.project)}-${lower(var.environment)}-rds-sg"
+  description = "Security group for RDS"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    from_port   = var.rds_configuration.db_port
+    to_port     = var.rds_configuration.db_port
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
